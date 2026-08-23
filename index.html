@@ -616,14 +616,14 @@ let stats=ld('wp_stats',{completed:0,goalsAchieved:0,daily:{}});
 let nextId=ld('wp_nid',1);
 
 const NOW=new Date();
-const todayKey=fmtKey(NOW);
+const todayKey=`${NOW.getFullYear()}-${String(NOW.getMonth()+1).padStart(2,'0')}-${String(NOW.getDate()).padStart(2,'0')}`;
 
 // Header
 document.getElementById('hday').textContent=NOW.toLocaleDateString('en-SG',{weekday:'long'});
 document.getElementById('hbigdate').textContent=String(NOW.getDate()).padStart(2,'0');
 document.getElementById('hmonth').textContent=MONTHS[NOW.getMonth()].toUpperCase();
 
-function fmtKey(d){return d.toISOString().split('T')[0];}
+function fmtKey(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
 function fmtDisp(d){return d.toLocaleDateString('en-SG',{month:'short',day:'numeric'});}
 
 function sw(t){
@@ -740,15 +740,39 @@ function formatTime(t){
   const[h,m]=t.split(':').map(Number);
   return new Date(0,0,0,h,m).toLocaleTimeString('en-SG',{hour:'2-digit',minute:'2-digit'});
 }
+function renderUpcoming(){
+  const el=document.getElementById('tlist');
+  const future=tasks.filter(t=>t.future===true&&t.created>todayKey).sort((a,b)=>a.created.localeCompare(b.created));
+  if(!future.length){el.innerHTML='<p class="empty">No upcoming tasks scheduled</p>';return;}
+  el.innerHTML=future.map(t=>{
+    const d=new Date(t.created+'T00:00:00');
+    const label=d.toLocaleDateString('en-SG',{weekday:'short',month:'short',day:'numeric'});
+    const ti=tasks.findIndex(x=>x.id===t.id);
+    return`<div class="task-card">
+      <div class="task-card-accent ${t.priority?'acc-p'+t.priority:''}" style="${t.priority?'':'background:#9e9b90'}"></div>
+      <div class="task-card-body">
+        <div class="task-inner">
+          <div class="task-name">${t.name}</div>
+          <div class="task-meta">
+            ${t.priority?`<span class="p-pill ${pPill[t.priority]}" style="font-size:10px">${['P1 — urgent','P2 — week','P3 — month','P4 — none'][t.priority-1]}</span>`:''}
+            <span style="font-size:11px;color:#9e9b90"><i class="ti ti-calendar" style="font-size:11px"></i> ${label}</span>
+          </div>
+        </div>
+        <button class="del-btn" onclick="delTask(${ti})" aria-label="Delete"><i class="ti ti-trash"></i></button>
+      </div>
+    </div>`;
+  }).join('');
+}
 function renderTasks(){
   const el=document.getElementById('tlist');
   // Auto-activate future tasks that have reached their scheduled date
   let changed=false;
-  tasks.forEach(t=>{if(t.future&&t.created&&t.created<=todayKey){t.future=false;changed=true;}});
+  tasks.forEach(t=>{if(t.future===true&&t.created&&t.created<=todayKey){t.future=false;changed=true;}if(t.future===undefined||t.future===null){t.future=false;changed=true;}});
   if(changed) sv('wp_tasks',tasks);
   const recT=recurring.filter(r=>r.addedToday).map(r=>({...r,isRec:true}));
   // Exclude future tasks from daily view
-  let all=[...tasks.filter(t=>!t.future),...recT];
+  let all=[...tasks.filter(t=>t.future!==true),...recT];
+  if(activeF==='future'){renderUpcoming();updStats();return;}
   if(['1','2','3','4'].includes(activeF))all=all.filter(t=>String(t.priority)===activeF);
   else if(activeF==='rec')all=recT;
   if(!all.length){el.innerHTML='<p class="empty">No tasks here</p>';updStats();return;}
@@ -804,7 +828,7 @@ function addTask(){
   const taskDate=dateInput||todayKey;
   const isFuture=taskDate>todayKey;
   const isPast=taskDate<todayKey;
-  const task={id:nextId++,name:v,priority:parseInt(document.getElementById('tp').value),done:false,created:taskDate,future:isFuture,time:timeInput||null};
+  const task={id:nextId++,name:v,priority:parseInt(document.getElementById('tp').value),done:false,created:taskDate,future:isFuture===true,time:timeInput||null};
   tasks.push(task);
   document.getElementById('ti').value='';
   document.getElementById('tdate').value='';
