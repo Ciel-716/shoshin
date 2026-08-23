@@ -107,6 +107,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .p4-pill{background:#6a9e52}
 .rec-pill{background:#e8e4de;color:#6e6c88;font-size:10px;padding:2px 8px;border-radius:20px;font-weight:600}
 .task-time-txt{font-size:11px;color:#9e9b90}
+.edit-task-btn{background:none;border:none;cursor:pointer;color:#c5c2d8;font-size:16px;padding:8px;flex-shrink:0;align-self:center;-webkit-tap-highlight-color:transparent;min-width:36px;min-height:40px;display:flex;align-items:center;justify-content:center}
+.edit-task-btn:hover{color:#5a7ec8}
 .del-btn{background:none;border:none;cursor:pointer;color:#c8705a;font-size:18px;padding:8px;flex-shrink:0;align-self:center;-webkit-tap-highlight-color:transparent;min-width:40px;min-height:40px;display:flex;align-items:center;justify-content:center;opacity:0.5}
 .del-btn:hover{color:#E24B4A;opacity:1}
 .acc-p1{background:#c8705a}.acc-p2{background:#c8a25a}.acc-p3{background:#5a7ec8}.acc-p4{background:#6a9e52}
@@ -316,6 +318,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .confirm-btns{display:flex;flex-direction:column;gap:8px}
 .confirm-del{height:48px;border-radius:14px;border:none;background:#E24B4A;color:#fff;font-size:15px;font-weight:700;cursor:pointer;-webkit-tap-highlight-color:transparent}
 .confirm-cancel{height:48px;border-radius:14px;border:1.5px solid #e8e4de;background:#f9f8f5;color:#1e1e2e;font-size:15px;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent}
+
+/* ── EDIT TASK MODAL ── */
+.edit-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.45);z-index:600;display:none;align-items:flex-end;justify-content:center}
+.edit-overlay.show{display:flex}
+.edit-sheet{width:100%;max-width:420px;background:#f9f8f5;border-radius:20px 20px 0 0;padding:1.25rem 1.25rem calc(env(safe-area-inset-bottom)+1.25rem);animation:slideUp 0.25s cubic-bezier(0.4,0,0.2,1)}
+.edit-title{font-size:16px;font-weight:800;color:#1e1e2e;margin-bottom:1rem}
+.edit-field{margin-bottom:0.75rem}
+.edit-label{font-size:11px;font-weight:700;color:#9e9b90;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px}
+.edit-input{width:100%;height:44px;border-radius:12px;border:1.5px solid #e8e4de;background:#fff;padding:0 12px;font-size:14px;color:#1e1e2e;outline:none;box-sizing:border-box}
+.edit-input:focus{border-color:#1e1e2e}
+.edit-row{display:flex;gap:8px}
+.edit-row .edit-input{flex:1}
+.edit-btns{display:flex;gap:8px;margin-top:1rem}
+.edit-save{flex:1;height:48px;border-radius:14px;border:none;background:#1e1e2e;color:#fff;font-size:15px;font-weight:700;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.edit-cancel{height:48px;padding:0 20px;border-radius:14px;border:1.5px solid #e8e4de;background:#fff;color:#1e1e2e;font-size:15px;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent}
 </style>
 </head>
 <body>
@@ -731,7 +748,10 @@ function taskCardHTML(t,onToggle,onDel){
           ${t.isRec?'<span class="rec-pill"><i class="ti ti-repeat" style="font-size:9px"></i> recurring</span>':''}
         </div>
       </div>
-      ${onDel?`<button class="del-btn" onclick="${onDel}" aria-label="Delete"><i class="ti ti-trash"></i></button>`:''}
+      <div style="display:flex;gap:4px;align-items:center">
+        ${!t.isRec?`<button class="edit-task-btn" onclick="openEdit(${tasks.findIndex(x=>x.id===t.id)})" aria-label="Edit"><i class="ti ti-pencil"></i></button>`:''}
+        ${onDel?`<button class="del-btn" onclick="${onDel}" aria-label="Delete"><i class="ti ti-trash"></i></button>`:''}
+      </div>
     </div>
   </div>`;
 }
@@ -1015,6 +1035,17 @@ function renderStats(){
 }
 
 /* SCHEDULE */
+function getCountdown(taskMins, nowMins, isPast, isNow, done){
+  if(done) return '✓ done';
+  if(isNow) return '● now';
+  if(isPast) return 'overdue';
+  const diff = taskMins - nowMins;
+  if(diff < 60) return 'in '+diff+' min';
+  const hrs = Math.floor(diff/60);
+  const mins = diff%60;
+  if(mins===0) return 'in '+hrs+' hr'+(hrs>1?'s':'');
+  return 'in '+hrs+'h '+mins+'m';
+}
 function renderSchedule(){
   const el=document.getElementById('slist');
   if(!el) return;
@@ -1043,8 +1074,9 @@ function renderSchedule(){
     const isRec=ti===-1;
     const accentColor=isPast?'#e8e4de':isNow?'#c8705a':'#1e1e2e';
     return`<div style="display:flex;gap:12px;margin-bottom:14px;align-items:flex-start">
-      <div style="text-align:right;flex-shrink:0;width:50px">
+      <div style="text-align:right;flex-shrink:0;width:60px">
         <div style="font-size:13px;font-weight:700;color:${isPast?'#c5c2d8':isNow?'#c8705a':'#1e1e2e'}">${formatTime(t.time)}</div>
+        <div style="font-size:10px;color:${isNow?'#c8705a':isPast?'#c5c2d8':'#9e9b90'};margin-top:2px;white-space:nowrap">${getCountdown(taskMins,nowMins,isPast,isNow,t.done)}</div>
       </div>
       <div style="width:2px;background:${accentColor};border-radius:2px;margin-top:4px;flex-shrink:0;align-self:stretch;min-height:40px"></div>
       <div class="task-card" style="flex:1;margin-bottom:0;${isNow?'border:1.5px solid #c8705a':''}">
@@ -1640,6 +1672,51 @@ function closeConfirm(){
   pendingDeleteFn = null;
 }
 
+
+/* ── EDIT TASK ── */
+let editingTaskIndex = -1;
+
+function openEdit(i){
+  editingTaskIndex = i;
+  const t = tasks[i];
+  document.getElementById('edit-name').value = t.name;
+  document.getElementById('edit-priority').value = t.priority;
+  document.getElementById('edit-date').value = t.created || '';
+  document.getElementById('edit-time').value = t.time || '';
+  document.getElementById('edit-overlay').classList.add('show');
+}
+function closeEdit(){
+  document.getElementById('edit-overlay').classList.remove('show');
+  editingTaskIndex = -1;
+}
+function saveEdit(){
+  if(editingTaskIndex < 0) return;
+  const name = document.getElementById('edit-name').value.trim();
+  if(!name) return;
+  const dateVal = document.getElementById('edit-date').value;
+  const timeVal = document.getElementById('edit-time').value;
+  const taskDate = dateVal || todayKey;
+  const isFuture = taskDate > todayKey;
+  const t = tasks[editingTaskIndex];
+  t.name = name;
+  t.priority = parseInt(document.getElementById('edit-priority').value);
+  t.created = taskDate;
+  t.time = timeVal || null;
+  t.future = isFuture === true;
+  sv('wp_tasks', tasks);
+  closeEdit();
+  renderTasks();
+  renderSchedule();
+  // Reschedule notification if time set and date is today
+  if(timeVal && taskDate === todayKey){
+    const[h,m]=timeVal.split(':').map(Number);
+    const now=new Date();
+    const target=new Date(now.getFullYear(),now.getMonth(),now.getDate(),h,m,0);
+    const ms=target-now;
+    if(ms>0) scheduleNotification('Shoshin reminder',`Time for: "${name}"`,ms,'task-'+t.id);
+  }
+}
+
 window.addEventListener('load', function(){
   // Input keyboard shortcuts
   var gi=document.getElementById('ginput');
@@ -1703,6 +1780,36 @@ window.addEventListener('load', function(){
     <div class="confirm-btns">
       <button class="confirm-del" onclick="confirmDelete()">Yes, delete it</button>
       <button class="confirm-cancel" onclick="closeConfirm()">Cancel</button>
+    </div>
+  </div>
+</div>
+<!-- EDIT TASK MODAL -->
+<div class="edit-overlay" id="edit-overlay" onclick="if(event.target===this)closeEdit()">
+  <div class="edit-sheet">
+    <div class="edit-title">Edit task</div>
+    <div class="edit-field">
+      <div class="edit-label">Task name</div>
+      <input class="edit-input" type="text" id="edit-name" placeholder="Task name..."/>
+    </div>
+    <div class="edit-field">
+      <div class="edit-label">Priority</div>
+      <select class="edit-input" id="edit-priority">
+        <option value="1">P1 — Urgent today</option>
+        <option value="2">P2 — This week</option>
+        <option value="3">P3 — This month</option>
+        <option value="4">P4 — No deadline</option>
+      </select>
+    </div>
+    <div class="edit-field">
+      <div class="edit-label">Date &amp; Time (optional)</div>
+      <div class="edit-row">
+        <input class="edit-input" type="date" id="edit-date"/>
+        <input class="edit-input" type="time" id="edit-time"/>
+      </div>
+    </div>
+    <div class="edit-btns">
+      <button class="edit-cancel" onclick="closeEdit()">Cancel</button>
+      <button class="edit-save" onclick="saveEdit()">Save changes</button>
     </div>
   </div>
 </div>
