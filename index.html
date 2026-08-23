@@ -1568,30 +1568,57 @@ async function initNotifications(){
 }
 
 function scheduleNotification(title, body, delayMs, tag){
-  // Try service worker first (works in background)
-  if(swRegistration && swRegistration.active && Notification.permission === 'granted'){
-    swRegistration.active.postMessage({
-      type: 'SCHEDULE_NOTIFICATION',
-      title, body,
-      delay: delayMs,
-      tag: tag || 'shoshin-'+Date.now()
-    });
+  // Store alarm in localStorage so it survives app restarts
+  const alarms = JSON.parse(localStorage.getItem('wp_alarms')||'[]');
+  const fireAt = Date.now() + delayMs;
+  alarms.push({title, body, tag: tag||'shoshin', fireAt});
+  localStorage.setItem('wp_alarms', JSON.stringify(alarms));
+
+  // Also set a live timer if app stays open
+  setTimeout(()=>{
+    fireNotification(title, body, tag);
+  }, delayMs);
+}
+
+function fireNotification(title, body, tag){
+  if(Notification.permission === 'granted'){
+    try {
+      new Notification(title, {
+        body,
+        tag: tag||'shoshin',
+        icon: 'https://ciel-716.github.io/shoshin/icon.png',
+        vibrate: [200, 100, 200],
+        requireInteraction: false,
+      });
+    } catch(e){
+      // Fallback to in-app if Notification fails
+      showN(body, 'warn');
+    }
   } else {
-    // Fallback: in-app notification only
-    setTimeout(()=>showN(body,'warn'), delayMs);
+    showN(body, 'warn');
   }
 }
 
 function scheduleRepeating(title, body, intervalMs, tag){
-  if(swRegistration && swRegistration.active && Notification.permission === 'granted'){
-    swRegistration.active.postMessage({
-      type: 'SCHEDULE_REPEATING',
-      title, body, intervalMs,
-      tag: tag || 'shoshin-repeat-'+Date.now()
-    });
-  } else {
-    setInterval(()=>showN(body,'warn'), intervalMs);
-  }
+  setInterval(()=>fireNotification(title, body, tag), intervalMs);
+}
+
+// Check stored alarms on app open — fires any missed or due alarms
+function checkStoredAlarms(){
+  const now=Date.now();
+  let alarms=JSON.parse(localStorage.getItem('wp_alarms')||'[]');
+  const remaining=[];
+  alarms.forEach(a=>{
+    if(a.fireAt<=now){
+      // Due or overdue — fire it
+      fireNotification(a.title, a.body, a.tag);
+    } else {
+      // Still in the future — reschedule
+      setTimeout(()=>fireNotification(a.title, a.body, a.tag), a.fireAt-now);
+      remaining.push(a);
+    }
+  });
+  localStorage.setItem('wp_alarms', JSON.stringify(remaining));
 }
 
 
@@ -1645,6 +1672,7 @@ window.addEventListener('load', function(){
   }
 
   initNotifications();
+  checkStoredAlarms();
   renderWelcome();
   // Date picker allows any date — past, today, or future
   const tdEl=document.getElementById('tdate');
