@@ -733,7 +733,8 @@ function updStats(){
   document.getElementById('pbar').style.width=(all.length?Math.round((done/all.length)*100):0)+'%';
   recordDaily();
 }
-function taskCardHTML(t,onToggle,onDel){
+function taskCardHTML(t,onToggle,onDel,taskIdx){
+  const editBtn=(!t.isRec&&taskIdx>=0)?`<button class="edit-task-btn" onclick="openEdit(${taskIdx})" aria-label="Edit"><i class="ti ti-pencil"></i></button>`:'';
   return`<div class="task-card">
     <div class="task-card-accent ${t.priority?pAccent[t.priority]:''}" style="${t.priority?'':'background:#9e9b90'}"></div>
     <div class="task-card-body">
@@ -749,7 +750,7 @@ function taskCardHTML(t,onToggle,onDel){
         </div>
       </div>
       <div style="display:flex;gap:4px;align-items:center">
-        ${!t.isRec?`<button class="edit-task-btn" onclick="openEdit(${tasks.findIndex(x=>x.id===t.id)})" aria-label="Edit"><i class="ti ti-pencil"></i></button>`:''}
+        ${editBtn}
         ${onDel?`<button class="del-btn" onclick="${onDel}" aria-label="Delete"><i class="ti ti-trash"></i></button>`:''}
       </div>
     </div>
@@ -800,7 +801,7 @@ function renderTasks(){
   el.innerHTML=sorted.map(t=>{
     const ri=t.isRec?recurring.findIndex(r=>r.id===t.id):-1;
     const ti=!t.isRec?tasks.findIndex(x=>x.id===t.id):-1;
-    return taskCardHTML(t,t.isRec?`togRec(${ri})`:`togTask(${ti})`,t.isRec?null:`delTask(${ti})`);
+    return taskCardHTML(t,t.isRec?`togRec(${ri})`:`togTask(${ti})`,t.isRec?null:`delTask(${ti})`,ti);
   }).join('');
   updStats();checkP1();
 }
