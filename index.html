@@ -499,11 +499,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <input type="date" id="tdate" style="flex:1;font-size:13px;border:none;outline:none;background:transparent;color:#1e1e2e"/>
       </div>
       <div style="display:flex;align-items:center;gap:6px;flex:1;background:#fff;border-radius:12px;border:1.5px solid #e8e4de;padding:0 12px;height:40px">
-        <i class="ti ti-bell" style="font-size:14px;color:#9e9b90" aria-hidden="true"></i>
+        <i class="ti ti-clock" style="font-size:14px;color:#9e9b90" aria-hidden="true"></i>
         <input type="time" id="ttime" style="flex:1;font-size:13px;border:none;outline:none;background:transparent;color:#1e1e2e"/>
       </div>
     </div>
-    <div style="font-size:11px;color:#9e9b90;margin:-0.4rem 0 0.5rem;padding:0 2px">Date optional — pick past, today, or future. Time optional — sets a reminder.</div>
+    <div style="display:flex;align-items:center;gap:6px;background:#fff;border-radius:12px;border:1.5px solid #e8e4de;padding:0 12px;height:40px;margin-top:-0.3rem">
+      <i class="ti ti-bell" style="font-size:14px;color:#9e9b90" aria-hidden="true"></i>
+      <select id="tremind" style="flex:1;font-size:13px;border:none;outline:none;background:transparent;color:#1e1e2e">
+        <option value="0">No repeat reminder</option>
+        <option value="15">Remind every 15 minutes</option>
+        <option value="30">Remind every 30 minutes</option>
+        <option value="60">Remind every 1 hour</option>
+        <option value="120">Remind every 2 hours</option>
+      </select>
+    </div>
+    <div style="font-size:11px;color:#9e9b90;margin:-0.2rem 0 0.5rem;padding:0 2px">Date & start time are optional. Reminder repeats until task is done.</div>
     <div class="err" id="terr" style="display:none"></div>
     <div class="filter-row">
       <button class="fb active" onclick="setF('all',this)">All</button>
@@ -746,6 +756,7 @@ function taskCardHTML(t,onToggle,onDel,taskIdx){
         <div class="task-meta">
           ${t.priority?`<span class="p-pill ${pPill[t.priority]}">${['P1 — urgent','P2 — week','P3 — month','P4 — none'][t.priority-1]}</span>`:''}
           ${t.time?`<span class="task-time-txt"><i class="ti ti-clock" style="font-size:11px"></i> ${formatTime(t.time)}</span>`:''}
+          ${t.remind&&t.remind>0?`<span class="task-time-txt"><i class="ti ti-bell" style="font-size:11px"></i> every ${t.remind>=60?t.remind/60+'hr':t.remind+'min'}</span>`:''}
           ${t.isRec?'<span class="rec-pill"><i class="ti ti-repeat" style="font-size:9px"></i> recurring</span>':''}
         </div>
       </div>
@@ -846,14 +857,16 @@ function addTask(){
   e.style.display='none';
   const dateInput=document.getElementById('tdate').value;
   const timeInput=document.getElementById('ttime').value;
+  const remindInterval=parseInt(document.getElementById('tremind').value)||0;
   const taskDate=dateInput||todayKey;
   const isFuture=taskDate>todayKey;
   const isPast=taskDate<todayKey;
-  const task={id:nextId++,name:v,priority:parseInt(document.getElementById('tp').value),done:false,created:taskDate,future:isFuture===true,time:timeInput||null};
+  const task={id:nextId++,name:v,priority:parseInt(document.getElementById('tp').value),done:false,created:taskDate,future:isFuture===true,time:timeInput||null,remind:remindInterval};
   tasks.push(task);
   document.getElementById('ti').value='';
   document.getElementById('tdate').value='';
   document.getElementById('ttime').value='';
+  document.getElementById('tremind').value='0';
   sv('wp_tasks',tasks);sv('wp_nid',nextId);renderTasks();renderSchedule();
   if(isFuture){
     const d=new Date(taskDate+'T00:00:00');
@@ -864,18 +877,60 @@ function addTask(){
     const label=d.toLocaleDateString('en-SG',{weekday:'short',month:'short',day:'numeric'});
     showN(`Task backdated to ${label} — it'll show in your leftover nudge!`,'info');
   }
-  // Schedule reminder if time set and date is today
+  // Schedule start notification + repeating reminder if time set and date is today
   if(timeInput&&taskDate===todayKey){
     const[h,m]=timeInput.split(':').map(Number);
     const now=new Date();
     const target=new Date(now.getFullYear(),now.getMonth(),now.getDate(),h,m,0);
     const ms=target-now;
     if(ms>0){
-      scheduleNotification('Shoshin reminder',`Time for: "${v}"`,ms,'task-'+task.id);
+      // Fire start notification
+      scheduleNotification('Shoshin — Task starting!',`Time to start: "${v}"`,ms,'task-start-'+task.id);
+      // Schedule repeating reminder after start time
+      if(remindInterval>0){
+        scheduleTaskReminders(task, ms, remindInterval);
+      }
+    } else if(remindInterval>0){
+      // Task already started — begin reminders immediately
+      scheduleTaskReminders(task, 0, remindInterval);
     }
   }
 }
-function togTask(i){tasks[i].done=!tasks[i].done;sv('wp_tasks',tasks);renderTasks();}
+
+function scheduleTaskReminders(task, delayMs, intervalMins){
+  const intervalMs=intervalMins*60000;
+  const remindLabels={15:'15 min',30:'30 min',60:'1 hr',120:'2 hrs'};
+  const label=remindLabels[intervalMins]||intervalMins+' min';
+  // Schedule first reminder after delay + interval
+  const firstDelay=delayMs+intervalMs;
+  scheduleNotification(
+    'Shoshin — Still pending!',
+    `"${task.name}" is still not done. Every ${label} reminder.`,
+    firstDelay,
+    'task-remind-'+task.id
+  );
+  // Store repeating config so we can keep scheduling on app open
+  const repeats=JSON.parse(localStorage.getItem('wp_repeats')||'[]');
+  repeats.push({
+    taskId: task.id,
+    name: task.name,
+    intervalMs,
+    nextFireAt: Date.now()+firstDelay,
+    label
+  });
+  localStorage.setItem('wp_repeats', JSON.stringify(repeats));
+}
+function togTask(i){
+  tasks[i].done=!tasks[i].done;
+  sv('wp_tasks',tasks);
+  if(tasks[i].done){
+    // Remove repeating reminders for this task
+    let repeats=JSON.parse(localStorage.getItem('wp_repeats')||'[]');
+    repeats=repeats.filter(r=>r.taskId!==tasks[i].id);
+    localStorage.setItem('wp_repeats',JSON.stringify(repeats));
+  }
+  renderTasks();
+}
 function delTask(i){
   askConfirmDelete(tasks[i].name, ()=>{
     tasks.splice(i,1);sv('wp_tasks',tasks);renderTasks();
@@ -1588,7 +1643,6 @@ async function initNotifications(){
   try {
     swRegistration = await navigator.serviceWorker.register('./sw.js');
     console.log('SW registered');
-    // Request notification permission
     if(Notification.permission === 'default'){
       const permission = await Notification.requestPermission();
       if(permission === 'granted'){
@@ -1637,16 +1691,39 @@ function scheduleRepeating(title, body, intervalMs, tag){
 }
 
 // Check stored alarms on app open — fires any missed or due alarms
+
+// Check and reschedule repeating reminders
+function checkRepeatingReminders(){
+  const now=Date.now();
+  let repeats=JSON.parse(localStorage.getItem('wp_repeats')||'[]');
+  const active=[];
+  repeats.forEach(r=>{
+    // Check if task is still exists and not done
+    const task=tasks.find(t=>t.id===r.taskId);
+    if(!task||task.done) return; // Task done or deleted — stop reminding
+    if(r.nextFireAt<=now){
+      // Fire the reminder
+      fireNotification('Shoshin — Still pending!',`"${r.name}" is still waiting. Every ${r.label} reminder.`,'task-remind-'+r.taskId);
+      r.nextFireAt=now+r.intervalMs;
+    }
+    // Set live timer for next fire
+    setTimeout(()=>{
+      const t=tasks.find(x=>x.id===r.taskId);
+      if(t&&!t.done) fireNotification('Shoshin — Still pending!',`"${r.name}" is still waiting.`,'task-remind-'+r.taskId);
+    }, r.nextFireAt-now);
+    active.push(r);
+  });
+  localStorage.setItem('wp_repeats', JSON.stringify(active));
+}
+
 function checkStoredAlarms(){
   const now=Date.now();
   let alarms=JSON.parse(localStorage.getItem('wp_alarms')||'[]');
   const remaining=[];
   alarms.forEach(a=>{
     if(a.fireAt<=now){
-      // Due or overdue — fire it
       fireNotification(a.title, a.body, a.tag);
     } else {
-      // Still in the future — reschedule
       setTimeout(()=>fireNotification(a.title, a.body, a.tag), a.fireAt-now);
       remaining.push(a);
     }
@@ -1684,6 +1761,7 @@ function openEdit(i){
   document.getElementById('edit-priority').value = t.priority;
   document.getElementById('edit-date').value = t.created || '';
   document.getElementById('edit-time').value = t.time || '';
+  document.getElementById('edit-remind').value = t.remind || 0;
   document.getElementById('edit-overlay').classList.add('show');
 }
 function closeEdit(){
@@ -1696,6 +1774,7 @@ function saveEdit(){
   if(!name) return;
   const dateVal = document.getElementById('edit-date').value;
   const timeVal = document.getElementById('edit-time').value;
+  const remindInterval = parseInt(document.getElementById('edit-remind').value)||0;
   const taskDate = dateVal || todayKey;
   const isFuture = taskDate > todayKey;
   const t = tasks[editingTaskIndex];
@@ -1704,17 +1783,27 @@ function saveEdit(){
   t.created = taskDate;
   t.time = timeVal || null;
   t.future = isFuture === true;
+  t.remind = remindInterval;
   sv('wp_tasks', tasks);
+  // Remove old repeating reminders for this task
+  let repeats=JSON.parse(localStorage.getItem('wp_repeats')||'[]');
+  repeats=repeats.filter(r=>r.taskId!==t.id);
+  localStorage.setItem('wp_repeats',JSON.stringify(repeats));
   closeEdit();
   renderTasks();
   renderSchedule();
-  // Reschedule notification if time set and date is today
+  // Reschedule if time set and date is today
   if(timeVal && taskDate === todayKey){
     const[h,m]=timeVal.split(':').map(Number);
     const now=new Date();
     const target=new Date(now.getFullYear(),now.getMonth(),now.getDate(),h,m,0);
     const ms=target-now;
-    if(ms>0) scheduleNotification('Shoshin reminder',`Time for: "${name}"`,ms,'task-'+t.id);
+    if(ms>0){
+      scheduleNotification('Shoshin — Task starting!',`Time to start: "${name}"`,ms,'task-start-'+t.id);
+      if(remindInterval>0) scheduleTaskReminders(t, ms, remindInterval);
+    } else if(remindInterval>0){
+      scheduleTaskReminders(t, 0, remindInterval);
+    }
   }
 }
 
@@ -1751,6 +1840,7 @@ window.addEventListener('load', function(){
 
   initNotifications();
   checkStoredAlarms();
+  checkRepeatingReminders();
   renderWelcome();
   // Date picker allows any date — past, today, or future
   const tdEl=document.getElementById('tdate');
@@ -1802,11 +1892,21 @@ window.addEventListener('load', function(){
       </select>
     </div>
     <div class="edit-field">
-      <div class="edit-label">Date &amp; Time (optional)</div>
+      <div class="edit-label">Start date &amp; time (optional)</div>
       <div class="edit-row">
         <input class="edit-input" type="date" id="edit-date"/>
         <input class="edit-input" type="time" id="edit-time"/>
       </div>
+    </div>
+    <div class="edit-field">
+      <div class="edit-label">Repeat reminder</div>
+      <select class="edit-input" id="edit-remind">
+        <option value="0">No repeat reminder</option>
+        <option value="15">Every 15 minutes</option>
+        <option value="30">Every 30 minutes</option>
+        <option value="60">Every 1 hour</option>
+        <option value="120">Every 2 hours</option>
+      </select>
     </div>
     <div class="edit-btns">
       <button class="edit-cancel" onclick="closeEdit()">Cancel</button>
